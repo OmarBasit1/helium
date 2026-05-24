@@ -96,8 +96,10 @@ class ParrotTradingProgram(ParrotMixin, TradingProgram):
                 output_variables.append(output_var)
             self.stop_timer()
 
-            # Execute all workflows
-            outputs = await asyncio.gather(*[var.aget() for var in output_variables])
+            # Execute all workflows; time each var's completion as one request
+            outputs = await asyncio.gather(
+                *[self.timed_request(var.aget()) for var in output_variables]
+            )
 
             # Stop generation
             self.stop_timer()

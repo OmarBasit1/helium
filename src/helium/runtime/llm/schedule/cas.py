@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, Final, cast
+from typing import Any, Final, Literal, cast
 
 from helium.common import Slice
 from helium.runtime.llm import LLMProfilingInfo, LLMServiceInfo
@@ -9,6 +9,9 @@ from helium.utils.prefix.radix_tree import (
     TemplatedNodeDependency,
     TemplatedRadixTree,
 )
+
+
+SchedulingObjective = Literal["throughput", "min_jct"]
 
 
 def token_usage(
@@ -347,6 +350,30 @@ class SchedulingNode:
             subtree_depth,
         )
 
+    def sort_key_min_jct_unforced(
+        self, subtree_depth: int, remaining_work: float
+    ) -> Any:
+        # SJF: smallest remaining work first. Cache locality is preserved as a
+        # tiebreaker via -non_blocking_node_depth (prefer the cache-hot sibling
+        # among equal-cost candidates) and via the radix-tree DFS itself, which
+        # keeps prefixes warm by draining one subtree before switching.
+        return (
+            remaining_work,
+            -self._non_blocking_node_depth,
+            self._token_step_to_schedule,
+            subtree_depth,
+        )
+
+    def sort_key_min_jct_forced(
+        self, subtree_depth: int, remaining_work: float
+    ) -> Any:
+        return (
+            remaining_work,
+            self._token_step_to_schedule,
+            -self._schedulable_node_depth,
+            subtree_depth,
+        )
+
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(inner={self._inner})"
 
@@ -358,6 +385,7 @@ class SchedulingTree:
         input_slice_map: dict[str, Slice],
         profiling_info_map: dict[str, LLMProfilingInfo],
         worker_info_map: dict[str, LLMServiceInfo],
+        objective: SchedulingObjective = "throughput",
     ):
         """
         Parameters
@@ -370,7 +398,12 @@ class SchedulingTree:
             A mapping from node IDs to their profiling information.
         worker_info_map: dict[str, LLMServiceInfo]
             A mapping from worker names to their LLM service information.
+        objective: SchedulingObjective
+            'throughput' uses the original CAS sort keys. 'min_jct' orders
+            sibling subtrees by their estimated total remaining work (SJF),
+            tie-broken by cache locality.
         """
+        self._objective: Final[SchedulingObjective] = objective
         self.input_slice_map: Final[dict[str, Slice]] = input_slice_map
         self.workers: Final[set[str]] = cast(
             set[str], set(leaf.label for leaf in radix_tree.leaves())
@@ -539,6 +572,25 @@ class SchedulingTree:
     def _get_subtree_sort_key(
         self, subtree_depths: dict[SchedulingNode, int], force: bool
     ) -> Callable[[SchedulingNode], Any]:
+        if self._objective == "min_jct":
+            # Precompute remaining work for each candidate so each `min(...)`
+            # call traverses every subtree only once.
+            remaining_work: dict[SchedulingNode, float] = {
+                node: self._compute_remaining_work(node) for node in subtree_depths
+            }
+
+            def _sort_key_jct_forced(node: SchedulingNode) -> Any:
+                return node.sort_key_min_jct_forced(
+                    subtree_depths[node], remaining_work[node]
+                )
+
+            def _sort_key_jct_unforced(node: SchedulingNode) -> Any:
+                return node.sort_key_min_jct_unforced(
+                    subtree_depths[node], remaining_work[node]
+                )
+
+            return _sort_key_jct_forced if force else _sort_key_jct_unforced
+
         def _sort_key_forced(node: SchedulingNode) -> Any:
             return node.sort_key_forced(subtree_depths[node])
 
@@ -546,6 +598,35 @@ class SchedulingTree:
             return node.sort_key_unforced(subtree_depths[node])
 
         return _sort_key_forced if force else _sort_key_unforced
+
+    def _compute_remaining_work(self, node: SchedulingNode) -> float:
+        """Estimated remaining LLM work in the subtree rooted at `node`,
+        in token-step units.
+
+        Per-leaf cost = sum over still-pending op IDs of
+        `token_usage(alpha, profiling_info, is_memory_limited) * slice_length`.
+        Internal-node cost = sum of children's costs.
+
+        The radix-tree structure itself encodes prefix sharing (sibling leaves
+        share their parent's prefix), so this returns the *total* work the
+        subtree must do; cache-hit advantage shows up implicitly because once
+        a sibling has been scheduled the remaining-work figure for its siblings
+        drops as their pending op IDs get removed from `inner`.
+        """
+        if node.is_empty:
+            return 0.0
+        if node.is_leaf:
+            alpha = node.alpha
+            is_mem = node.is_memory_limited
+            total = 0.0
+            for node_id in node.inner:
+                pi = self._profiling_info_map.get(node_id)
+                if pi is None:
+                    continue
+                slice_len = self.input_slice_map[node_id].length
+                total += token_usage(alpha, pi, is_mem) * slice_len
+            return total
+        return sum(self._compute_remaining_work(c) for c in node.children)
 
     def _assign_subtree_depths(
         self, nodes: list[SchedulingNode]
@@ -701,12 +782,14 @@ def cache_aware_schedule(
     input_slice_map: dict[str, Slice],
     profiling_info_map: dict[str, LLMProfilingInfo],
     worker_info_map: dict[str, LLMServiceInfo],
+    objective: SchedulingObjective = "throughput",
 ) -> dict[str, list[list[str]]]:
     scheduling_tree = SchedulingTree(
         radix_tree,
         input_slice_map,
         profiling_info_map,
         worker_info_map,
+        objective=objective,
     )
     schedule = scheduling_tree.schedule()
     return schedule

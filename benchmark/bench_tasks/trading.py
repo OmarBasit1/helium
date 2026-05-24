@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from bench_programs.trading.agentscope import ASTradingProgram
 from bench_programs.trading.autogen import AutoGenTradingProgram
@@ -60,6 +60,7 @@ class TradingBenchmarkConfig(BenchmarkConfig):
         include_insider_transactions: bool = False,
         split: str = "2024-06-02",
         dev_size: int = 30,
+        scheduling_objective: Literal["throughput", "min_jct"] = "throughput",
     ) -> None:
         super().__init__(
             system=runner_config.system,
@@ -69,6 +70,7 @@ class TradingBenchmarkConfig(BenchmarkConfig):
             enable_runtime_adjustment=enable_runtime_adjustment,
             enable_query_profiling=enable_query_profiling,
             helium_prebuilt_file=helium_prebuilt_file,
+            scheduling_objective=scheduling_objective,
         )
 
         llm_server_config = runner_config.llm_server_config
@@ -166,6 +168,7 @@ class TradingBenchmarkTask(BenchmarkTask):
             helium_request_config = HeliumRequestConfig(
                 enable_cache_aware_scheduling=self.config.enable_cache_aware_scheduling,
                 enable_runtime_adjustment=self.config.enable_runtime_adjustment,
+                scheduling_objective=self.config.scheduling_objective,
                 system_profiling_config=SystemProfilingConfig(),
                 query_profiling_config=(
                     QueryProfilingConfig(query_profile_map=query_profile_map)

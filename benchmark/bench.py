@@ -2,6 +2,7 @@ import itertools
 from collections import defaultdict
 from collections.abc import AsyncGenerator, Callable, Iterable
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 from bench_tasks.base import BenchmarkTask
@@ -264,6 +265,7 @@ async def generate_tasks_from_system_params(
     helium_prebuilt_file: str | None,
     runner_config: RunnerConfig,
     handler: RunnerHandler,
+    scheduling_objective: Literal["throughput", "min_jct"] = "throughput",
 ) -> AsyncGenerator[tuple[str, BenchmarkTask]]:
     def get_helium_prebuilt_file(workload_name: str) -> Path | None:
         return get_prebuilt_file_path(helium_prebuilt_file, model, workload_name)
@@ -316,175 +318,175 @@ async def generate_tasks_from_system_params(
 
     get_bench_task: Callable[[int, BenchmarkRunner], BenchmarkTask]
 
-    if not enable_prompt_cache:
-        mapreduce_benchmark_settings = [
-            # ("mmlu", 14, False, 50, None, "mapreduce_mmlu"),
-            ("mmlu", 14, True, 50, None, "mapreduce_mmlu_roles"),
-            # ("tatqa", 7, False, 25, 6, "mapreduce_tatqa"),
-            ("tatqa", 7, True, 25, 6, "mapreduce_tatqa_roles"),
-        ]
-        for (
-            dataset_name,
-            num_agents,
-            different_roles,
-            base_num_contexts,
-            num_questions_per_context,
-            workload_name,
-        ) in mapreduce_benchmark_settings:
-            get_bench_task = lambda workload_scale, runner: (  # noqa: E731
-                MapReduceBenchmarkTask(
-                    MapReduceBenchmarkConfig(
-                        num_trials=num_trials,
-                        helium_profiling=helium_profiling,
-                        enable_cache_aware_scheduling=enable_cache_aware_scheduling,
-                        enable_runtime_adjustment=enable_runtime_adjustment,
-                        enable_query_profiling=enable_query_profiling,
-                        helium_prebuilt_file=get_helium_prebuilt_file(workload_name),
-                        runner_config=runner.config,
-                        dataset_name=dataset_name,
-                        num_agents=num_agents,
-                        num_contexts=base_num_contexts * workload_scale,
-                        num_questions_per_context=num_questions_per_context,
-                        different_roles=different_roles,
-                    ),
-                    runner=runner,
-                )
-            )
-            async for task in maybe_precompute(get_bench_task, get_bench_task):
-                yield workload_name, task
+    # if not enable_prompt_cache:
+    #     mapreduce_benchmark_settings = [
+    #         # ("mmlu", 14, False, 50, None, "mapreduce_mmlu"),
+    #         ("mmlu", 14, True, 50, None, "mapreduce_mmlu_roles"),
+    #         # ("tatqa", 7, False, 25, 6, "mapreduce_tatqa"),
+    #         ("tatqa", 7, True, 25, 6, "mapreduce_tatqa_roles"),
+    #     ]
+    #     for (
+    #         dataset_name,
+    #         num_agents,
+    #         different_roles,
+    #         base_num_contexts,
+    #         num_questions_per_context,
+    #         workload_name,
+    #     ) in mapreduce_benchmark_settings:
+    #         get_bench_task = lambda workload_scale, runner: (  # noqa: E731
+    #             MapReduceBenchmarkTask(
+    #                 MapReduceBenchmarkConfig(
+    #                     num_trials=num_trials,
+    #                     helium_profiling=helium_profiling,
+    #                     enable_cache_aware_scheduling=enable_cache_aware_scheduling,
+    #                     enable_runtime_adjustment=enable_runtime_adjustment,
+    #                     enable_query_profiling=enable_query_profiling,
+    #                     helium_prebuilt_file=get_helium_prebuilt_file(workload_name),
+    #                     runner_config=runner.config,
+    #                     dataset_name=dataset_name,
+    #                     num_agents=num_agents,
+    #                     num_contexts=base_num_contexts * workload_scale,
+    #                     num_questions_per_context=num_questions_per_context,
+    #                     different_roles=different_roles,
+    #                 ),
+    #                 runner=runner,
+    #             )
+    #         )
+    #         async for task in maybe_precompute(get_bench_task, get_bench_task):
+    #             yield workload_name, task
 
-    if not enable_prompt_cache:
-        debate_benchmark_settings = [
-            # ("mmlu", 50, None, False, "multiagent_debate_mmlu"),
-            ("mmlu", 50, None, True, "multiagent_debate_mmlu_roles"),
-            # ("tatqa", 25, 6, False, "multiagent_debate_tatqa"),
-            ("tatqa", 25, 6, True, "multiagent_debate_tatqa_roles"),
-        ]
-        for (
-            dataset_name,
-            base_num_contexts,
-            num_questions_per_context,
-            different_roles,
-            workload_name,
-        ) in debate_benchmark_settings:
-            get_bench_task = lambda workload_scale, runner: (  # noqa: E731
-                DebateBenchmarkTask(
-                    DebateBenchmarkConfig(
-                        num_trials=num_trials,
-                        helium_profiling=helium_profiling,
-                        enable_cache_aware_scheduling=enable_cache_aware_scheduling,
-                        enable_runtime_adjustment=enable_runtime_adjustment,
-                        enable_query_profiling=enable_query_profiling,
-                        helium_prebuilt_file=get_helium_prebuilt_file(workload_name),
-                        runner_config=runner.config,
-                        dataset_name=dataset_name,
-                        num_agents=3,
-                        num_rounds=2,
-                        num_contexts=base_num_contexts * workload_scale,
-                        num_questions_per_context=num_questions_per_context,
-                        different_roles=different_roles,
-                        dump_conversations=False,
-                    ),
-                    runner=runner,
-                )
-            )
-            async for task in maybe_precompute(get_bench_task, get_bench_task):
-                yield workload_name, task
+    # if not enable_prompt_cache:
+    #     debate_benchmark_settings = [
+    #         # ("mmlu", 50, None, False, "multiagent_debate_mmlu"),
+    #         ("mmlu", 50, None, True, "multiagent_debate_mmlu_roles"),
+    #         # ("tatqa", 25, 6, False, "multiagent_debate_tatqa"),
+    #         ("tatqa", 25, 6, True, "multiagent_debate_tatqa_roles"),
+    #     ]
+    #     for (
+    #         dataset_name,
+    #         base_num_contexts,
+    #         num_questions_per_context,
+    #         different_roles,
+    #         workload_name,
+    #     ) in debate_benchmark_settings:
+    #         get_bench_task = lambda workload_scale, runner: (  # noqa: E731
+    #             DebateBenchmarkTask(
+    #                 DebateBenchmarkConfig(
+    #                     num_trials=num_trials,
+    #                     helium_profiling=helium_profiling,
+    #                     enable_cache_aware_scheduling=enable_cache_aware_scheduling,
+    #                     enable_runtime_adjustment=enable_runtime_adjustment,
+    #                     enable_query_profiling=enable_query_profiling,
+    #                     helium_prebuilt_file=get_helium_prebuilt_file(workload_name),
+    #                     runner_config=runner.config,
+    #                     dataset_name=dataset_name,
+    #                     num_agents=3,
+    #                     num_rounds=2,
+    #                     num_contexts=base_num_contexts * workload_scale,
+    #                     num_questions_per_context=num_questions_per_context,
+    #                     different_roles=different_roles,
+    #                     dump_conversations=False,
+    #                 ),
+    #                 runner=runner,
+    #             )
+    #         )
+    #         async for task in maybe_precompute(get_bench_task, get_bench_task):
+    #             yield workload_name, task
 
-    if not enable_prompt_cache:
-        reflection_benchmark_settings = [
-            # ("finqa", 100, 1, "reflection_finqa"),
-            ("tatqa", 50, 6, "reflection_tatqa"),
-        ]
-        for (
-            dataset_name,
-            base_num_contexts,
-            num_questions_per_context,
-            workload_name,
-        ) in reflection_benchmark_settings:
-            get_bench_task = lambda workload_scale, runner: (  # noqa: E731
-                ReflectionBenchmarkTask(
-                    ReflectionBenchmarkConfig(
-                        num_trials=num_trials,
-                        helium_profiling=helium_profiling,
-                        enable_cache_aware_scheduling=enable_cache_aware_scheduling,
-                        enable_runtime_adjustment=enable_runtime_adjustment,
-                        enable_query_profiling=enable_query_profiling,
-                        helium_prebuilt_file=get_helium_prebuilt_file(workload_name),
-                        runner_config=runner.config,
-                        dataset_name=dataset_name,
-                        num_contexts=base_num_contexts * workload_scale,
-                        num_questions_per_context=num_questions_per_context,
-                    ),
-                    runner=runner,
-                )
-            )
-            async for task in maybe_precompute(get_bench_task, get_bench_task):
-                yield workload_name, task
+    # if not enable_prompt_cache:
+    #     reflection_benchmark_settings = [
+    #         # ("finqa", 100, 1, "reflection_finqa"),
+    #         ("tatqa", 50, 6, "reflection_tatqa"),
+    #     ]
+    #     for (
+    #         dataset_name,
+    #         base_num_contexts,
+    #         num_questions_per_context,
+    #         workload_name,
+    #     ) in reflection_benchmark_settings:
+    #         get_bench_task = lambda workload_scale, runner: (  # noqa: E731
+    #             ReflectionBenchmarkTask(
+    #                 ReflectionBenchmarkConfig(
+    #                     num_trials=num_trials,
+    #                     helium_profiling=helium_profiling,
+    #                     enable_cache_aware_scheduling=enable_cache_aware_scheduling,
+    #                     enable_runtime_adjustment=enable_runtime_adjustment,
+    #                     enable_query_profiling=enable_query_profiling,
+    #                     helium_prebuilt_file=get_helium_prebuilt_file(workload_name),
+    #                     runner_config=runner.config,
+    #                     dataset_name=dataset_name,
+    #                     num_contexts=base_num_contexts * workload_scale,
+    #                     num_questions_per_context=num_questions_per_context,
+    #                 ),
+    #                 runner=runner,
+    #             )
+    #         )
+    #         async for task in maybe_precompute(get_bench_task, get_bench_task):
+    #             yield workload_name, task
 
-    if not enable_prompt_cache:
-        iterative_benchmark_settings = [
-            # ("arxiv", 50, 6, 1, "iterative_arxiv"),
-            ("amazon", 50, 6, 10, "iterative_amazon"),
-        ]
-        for (
-            dataset_name,
-            base_num_items,
-            num_review_chunks_per_item,
-            num_reviews_per_chunk,
-            workload_name,
-        ) in iterative_benchmark_settings:
-            get_bench_task = lambda workload_scale, runner: (  # noqa: E731
-                IterativeBenchmarkTask(
-                    IterativeBenchmarkConfig(
-                        num_trials=num_trials,
-                        helium_profiling=helium_profiling,
-                        enable_cache_aware_scheduling=enable_cache_aware_scheduling,
-                        enable_runtime_adjustment=enable_runtime_adjustment,
-                        enable_query_profiling=enable_query_profiling,
-                        helium_prebuilt_file=get_helium_prebuilt_file(workload_name),
-                        runner_config=runner.config,
-                        dataset_name=dataset_name,
-                        num_items=base_num_items * workload_scale,
-                        num_review_chunks_per_item=num_review_chunks_per_item,
-                        num_reviews_per_chunk=num_reviews_per_chunk,
-                    ),
-                    runner=runner,
-                )
-            )
-            async for task in maybe_precompute(get_bench_task, get_bench_task):
-                yield workload_name, task
+    # if not enable_prompt_cache:
+    #     iterative_benchmark_settings = [
+    #         # ("arxiv", 50, 6, 1, "iterative_arxiv"),
+    #         ("amazon", 50, 6, 10, "iterative_amazon"),
+    #     ]
+    #     for (
+    #         dataset_name,
+    #         base_num_items,
+    #         num_review_chunks_per_item,
+    #         num_reviews_per_chunk,
+    #         workload_name,
+    #     ) in iterative_benchmark_settings:
+    #         get_bench_task = lambda workload_scale, runner: (  # noqa: E731
+    #             IterativeBenchmarkTask(
+    #                 IterativeBenchmarkConfig(
+    #                     num_trials=num_trials,
+    #                     helium_profiling=helium_profiling,
+    #                     enable_cache_aware_scheduling=enable_cache_aware_scheduling,
+    #                     enable_runtime_adjustment=enable_runtime_adjustment,
+    #                     enable_query_profiling=enable_query_profiling,
+    #                     helium_prebuilt_file=get_helium_prebuilt_file(workload_name),
+    #                     runner_config=runner.config,
+    #                     dataset_name=dataset_name,
+    #                     num_items=base_num_items * workload_scale,
+    #                     num_review_chunks_per_item=num_review_chunks_per_item,
+    #                     num_reviews_per_chunk=num_reviews_per_chunk,
+    #                 ),
+    #                 runner=runner,
+    #             )
+    #         )
+    #         async for task in maybe_precompute(get_bench_task, get_bench_task):
+    #             yield workload_name, task
 
-    if not enable_prompt_cache:
-        parallel_benchmark_settings = [("amazon", 25, 6, 10, "parallel_amazon")]
-        for (
-            dataset_name,
-            base_num_items,
-            num_review_chunks_per_item,
-            num_reviews_per_chunk,
-            workload_name,
-        ) in parallel_benchmark_settings:
-            get_bench_task = lambda workload_scale, runner: (  # noqa: E731
-                ParallelBenchmarkTask(
-                    ParallelBenchmarkConfig(
-                        num_trials=num_trials,
-                        helium_profiling=helium_profiling,
-                        enable_cache_aware_scheduling=enable_cache_aware_scheduling,
-                        enable_runtime_adjustment=enable_runtime_adjustment,
-                        enable_query_profiling=enable_query_profiling,
-                        helium_prebuilt_file=get_helium_prebuilt_file(workload_name),
-                        runner_config=runner.config,
-                        dataset_name=dataset_name,
-                        num_experts=7,
-                        num_items=base_num_items * workload_scale,
-                        num_review_chunks_per_item=num_review_chunks_per_item,
-                        num_reviews_per_chunk=num_reviews_per_chunk,
-                    ),
-                    runner=runner,
-                )
-            )
-            async for task in maybe_precompute(get_bench_task, get_bench_task):
-                yield workload_name, task
+    # if not enable_prompt_cache:
+    #     parallel_benchmark_settings = [("amazon", 25, 6, 10, "parallel_amazon")]
+    #     for (
+    #         dataset_name,
+    #         base_num_items,
+    #         num_review_chunks_per_item,
+    #         num_reviews_per_chunk,
+    #         workload_name,
+    #     ) in parallel_benchmark_settings:
+    #         get_bench_task = lambda workload_scale, runner: (  # noqa: E731
+    #             ParallelBenchmarkTask(
+    #                 ParallelBenchmarkConfig(
+    #                     num_trials=num_trials,
+    #                     helium_profiling=helium_profiling,
+    #                     enable_cache_aware_scheduling=enable_cache_aware_scheduling,
+    #                     enable_runtime_adjustment=enable_runtime_adjustment,
+    #                     enable_query_profiling=enable_query_profiling,
+    #                     helium_prebuilt_file=get_helium_prebuilt_file(workload_name),
+    #                     runner_config=runner.config,
+    #                     dataset_name=dataset_name,
+    #                     num_experts=7,
+    #                     num_items=base_num_items * workload_scale,
+    #                     num_review_chunks_per_item=num_review_chunks_per_item,
+    #                     num_reviews_per_chunk=num_reviews_per_chunk,
+    #                 ),
+    #                 runner=runner,
+    #             )
+    #         )
+    #         async for task in maybe_precompute(get_bench_task, get_bench_task):
+    #             yield workload_name, task
 
     trading_benchmark_settings = [("fin_data", 8, 5, 50, 3, 30, "trading_findata")]
     for (
@@ -514,6 +516,7 @@ async def generate_tasks_from_system_params(
                     max_social_posts=max_social_posts,
                     num_debate_rounds=2,
                     split="2024-06-01",
+                    scheduling_objective="throughput",
                 ),
                 runner=runner,
             )
@@ -536,6 +539,7 @@ async def generate_tasks_from_system_params(
                     max_social_posts=max_social_posts,
                     num_debate_rounds=2,
                     split="2024-06-02",
+                    scheduling_objective=scheduling_objective,
                 ),
                 runner=runner,
             )
@@ -574,13 +578,18 @@ async def generate_tasks(
         "enable_query_profiling",
         "helium_prebuilt_file",
         "num_gpu_blocks_override",
+        # Ablation knob: CAS objective. "throughput" = original sort keys
+        # (max cache reuse / GPU saturation). "min_jct" = SJF over radix
+        # subtrees with cache-aware tiebreaker (lower avg request latency,
+        # potentially small throughput regression).
+        "scheduling_objective",
     ]
 
     model_list = [
         "meta-llama/Llama-3.1-8B-Instruct",
-        "Qwen/Qwen3-8B",
-        "Qwen/Qwen3-14B",
-        "Qwen/Qwen3-32B",
+        # "Qwen/Qwen3-8B",
+        # "Qwen/Qwen3-14B",
+        # "Qwen/Qwen3-32B",
     ]
 
     configs_df = pd.DataFrame()
@@ -590,7 +599,7 @@ async def generate_tasks(
                 itertools.product(
                     [model],
                     ["QueryWise"],
-                    [1, 2],
+                    [1],
                     [True],
                     [False],
                     [False],
@@ -599,6 +608,7 @@ async def generate_tasks(
                     [False],
                     [None],
                     [None],
+                    ["throughput"],
                 )
             ),
             columns=columns,
@@ -610,7 +620,7 @@ async def generate_tasks(
                 itertools.product(
                     [model],
                     ["OpWise"],
-                    [1, 2],
+                    [1],
                     [True],
                     [False],
                     [False],
@@ -619,6 +629,7 @@ async def generate_tasks(
                     [False],
                     [None],
                     [None],
+                    ["throughput"],
                 )
             ),
             columns=columns,
@@ -630,7 +641,7 @@ async def generate_tasks(
                 itertools.product(
                     [model],
                     ["LangGraph"],
-                    [1, 2],
+                    [1],
                     [True],
                     [False],
                     [False],
@@ -639,6 +650,7 @@ async def generate_tasks(
                     [False],
                     [None],
                     [None],
+                    ["throughput"],
                 )
             ),
             columns=columns,
@@ -650,7 +662,7 @@ async def generate_tasks(
                 itertools.product(
                     [model],
                     ["AgentScope"],
-                    [1, 2],
+                    [1],
                     [True],
                     [False],
                     [False],
@@ -659,6 +671,7 @@ async def generate_tasks(
                     [False],
                     [None],
                     [None],
+                    ["throughput"],
                 )
             ),
             columns=columns,
@@ -670,7 +683,7 @@ async def generate_tasks(
                 itertools.product(
                     [model],
                     ["Parrot"],
-                    [1, 2],
+                    [1],
                     [True],
                     [False],
                     [False],
@@ -679,6 +692,7 @@ async def generate_tasks(
                     [False],
                     [None],
                     [None],
+                    ["throughput"],
                 )
             ),
             columns=columns,
@@ -699,6 +713,7 @@ async def generate_tasks(
                     [False],
                     [None],
                     [None],
+                    ["throughput"],
                 )
             ),
             columns=columns,
@@ -713,23 +728,25 @@ async def generate_tasks(
                     # system
                     ["Helium"],
                     # num_llm_workers
-                    [1, 2],
+                    [1],
                     # enable_prefix_caching
                     [True],
                     # enable_proactive_kv_cache
-                    [False, True],
+                    [True],
                     # enable_prompt_cache
-                    [False, True],
+                    [True],
                     # enable_cache_aware_scheduling
-                    [False, True],
+                    [True],
                     # enable_runtime_adjustment
-                    [False, True],
+                    [True],
                     # enable_query_profiling
-                    [False, True],
+                    [True],
                     # helium_prebuilt_file
                     [None, "./benchmark/prebuilt/{}/helium_{}.dill"],
                     # num_gpu_blocks_override
                     [None],
+                    # scheduling_objective — ablation: original CAS vs min-JCT
+                    ["throughput", "min_jct"],
                 )
             ),
             columns=columns,
@@ -741,12 +758,12 @@ async def generate_tasks(
             [
                 configs_df,
                 helium,
-                querywise,
-                opwise,
+                # querywise,
+                # opwise,
                 langgraph,
                 agentscope,
                 parrot,
-                kvflow,
+                # kvflow,
             ],
             ignore_index=True,
         )
@@ -793,5 +810,6 @@ async def generate_tasks(
                 helium_prebuilt_file=config["helium_prebuilt_file"],
                 runner_config=runner_config,
                 handler=handler,
+                scheduling_objective=config["scheduling_objective"],
             ):
                 yield task

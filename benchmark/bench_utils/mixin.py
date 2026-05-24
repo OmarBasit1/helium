@@ -1,8 +1,11 @@
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Literal
+from collections.abc import Awaitable
+from typing import Any, Literal, TypeVar
 
 from helium.runtime.protocol import HeliumResponse, HeliumSystemProfile
+
+_T = TypeVar("_T")
 
 
 class BenchmarkMixin(ABC):
@@ -11,6 +14,7 @@ class BenchmarkMixin(ABC):
         self._end_times: dict[str, list[float]] = {}
         self._keys: list[str] = []
         self._system_profile: HeliumSystemProfile | None = None
+        self._request_latencies: list[float] = []
 
     @abstractmethod
     async def run_async(self, *args, **kwargs) -> Any:
@@ -68,6 +72,33 @@ class BenchmarkMixin(ABC):
         self._start_times = {}
         self._end_times = {}
         self._keys = []
+        self._request_latencies = []
+
+    def record_request_latency(self, latency: float) -> None:
+        """Records the end-to-end latency of a single served request
+
+        A "request" is one orchestrated workflow invocation (e.g. one
+        (context, question) flow in a reflection workload), measured from
+        submission to completion. This captures execution time plus any
+        queue / wait time of the agent LLM calls that make up the request.
+        """
+        self._request_latencies.append(latency)
+
+    def get_request_latencies(self) -> list[float]:
+        """Returns recorded per-request end-to-end latencies (seconds)"""
+        return list(self._request_latencies)
+
+    async def timed_request(self, coro: Awaitable[_T]) -> _T:
+        """Awaits ``coro`` and records its wall-clock latency as one request.
+
+        Wrap each per-request entry-point coroutine with this helper so the
+        runner can compute a system-agnostic ``avg_request_latency``.
+        """
+        start = time.time()
+        try:
+            return await coro
+        finally:
+            self.record_request_latency(time.time() - start)
 
     def set_system_profile(self, system_profile: HeliumSystemProfile) -> None:
         """Sets profiling results"""

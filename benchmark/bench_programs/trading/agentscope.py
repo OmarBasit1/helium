@@ -1,3 +1,4 @@
+import time
 from typing import cast
 
 from bench_programs.trading.base import (
@@ -115,29 +116,42 @@ class ASTradingProgram(TradingProgram):
         try_start_benchmark(base_url)
 
         self.start_timer("generate")
-        outputs = [
-            self._run_single_workflow(
-                original_idx,
-                data,
-                trading_input,
-                fundamentals_agent,
-                market_agent,
-                news_agent,
-                social_media_agent,
-                bull_researcher,
-                bear_researcher,
-                research_manager,
-                trader_agents,
-                risk_analyst_agents,
-                judge_agents,
-                fund_manager_agent,
-                llm_config,
+        # Dispatch all workflows (returns PlaceholderMsg futures immediately)
+        # and record per-request dispatch times.
+        dispatch_times: list[float] = []
+        outputs = []
+        for original_idx, data in zip(indices, trading_input.iter_data()):
+            dispatch_times.append(time.time())
+            outputs.append(
+                self._run_single_workflow(
+                    original_idx,
+                    data,
+                    trading_input,
+                    fundamentals_agent,
+                    market_agent,
+                    news_agent,
+                    social_media_agent,
+                    bull_researcher,
+                    bear_researcher,
+                    research_manager,
+                    trader_agents,
+                    risk_analyst_agents,
+                    judge_agents,
+                    fund_manager_agent,
+                    llm_config,
+                )
             )
-            for original_idx, data in zip(indices, trading_input.iter_data())
-        ]
+        # Reading PlaceholderMsg.content blocks until the future resolves.
+        # The first .content access waits for the slowest row that the
+        # current iterator reached; subsequent accesses for already-resolved
+        # rows return immediately. We approximate per-row latency by
+        # timestamping each .content read, which gives an upper bound for
+        # rows resolved in this dispatch order.
         output_builder = self.OutputBuilder()
-        for index, final_recommendation in outputs:
-            output_builder.add(index, final_recommendation.content)
+        for (index, final_recommendation), dispatch_t in zip(outputs, dispatch_times):
+            content = final_recommendation.content
+            self.record_request_latency(time.time() - dispatch_t)
+            output_builder.add(index, content)
         self.stop_timer()
 
         # Stop benchmarking

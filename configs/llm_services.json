@@ -4,6 +4,22 @@
     "args": {
       "model": "meta-llama/Meta-Llama-3-8B-Instruct",
       "device": "cuda:0",
+      "port": 8000,
+      "lmcache_config_file": "configs/lmcache_0.yaml",
+      "enable_prefix_caching": true
+    },
+    "info": {
+      "cache_capacity": 543440,
+      "prefix_caching_enabled": true
+    }
+  },
+  {
+    "name": "vllm-local",
+    "args": {
+      "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+      "device": "cuda:1",
+      "port": 8001,
+      "lmcache_config_file": "configs/lmcache_1.yaml",
       "enable_prefix_caching": true
     },
     "info": {

@@ -118,19 +118,26 @@ class ProcessorOutput:
                 for sources, e in errors.items()
             ]
         )
+        # Per-output-op finish wall-clock times (time.time()), keyed by output name.
+        # Populated by _process_graph; used by the server to compute per-output
+        # request latencies relative to the request-received timestamp.
+        self.output_finish_times: dict[str, float] = {}
 
     @classmethod
     def merge(cls, outputs: Iterable["ProcessorOutput"]) -> "ProcessorOutput":
         merged_outputs: dict[str, Any] = {}
         merged_error_infos: list[dict[str, Any]] | None = None
+        merged_finish_times: dict[str, float] = {}
         for output in outputs:
             merged_outputs.update(output.outputs)
             if output.error_info is not None:
                 if merged_error_infos is None:
                     merged_error_infos = []
                 merged_error_infos.extend(output.error_info)
+            merged_finish_times.update(output.output_finish_times)
         merged = cls(merged_outputs, None)
         merged.error_info = merged_error_infos
+        merged.output_finish_times = merged_finish_times
         return merged
 
     @property
@@ -445,6 +452,8 @@ class HeliumProcessor(ResultPuller):
                     enable_cache_aware_scheduling,
                     # Always enable runtime adjustment for profiling
                     enable_cache_aware_scheduling,
+                    # Profiling uses the default throughput objective
+                    "throughput",
                     True,
                     None,
                 )
@@ -519,6 +528,7 @@ class HeliumProcessor(ResultPuller):
         llm_partition_counts = info.llm_partition_counts
         enable_cache_aware_scheduling = info.enable_cache_aware_scheduling
         enable_runtime_adjustment = info.enable_runtime_adjustment
+        scheduling_objective = info.scheduling_objective
         query_profile = info.query_profile
         system_profiling_config = info.system_profiling_config
 
@@ -565,6 +575,7 @@ class HeliumProcessor(ResultPuller):
             eager_ops,
             enable_cache_aware_scheduling,
             enable_runtime_adjustment,
+            scheduling_objective,
             False,
             query_profile,
         )
@@ -1028,6 +1039,7 @@ class HeliumProcessor(ResultPuller):
         eager_ops: set[Op],
         enable_cache_aware_scheduling: bool,
         enable_runtime_adjustment: bool,
+        scheduling_objective: Literal["throughput", "min_jct"],
         profiling: bool,
         query_profile: HeliumQueryProfile | None,
     ) -> ProcessorOutput:
@@ -1128,8 +1140,18 @@ class HeliumProcessor(ResultPuller):
                 # Default to batch-wise scheduling
                 scheduling_method = LLMSchedulingMethod.BATCH_WISE
                 radix_tree = None
+                if scheduling_objective != "throughput":
+                    self.logger.warning(
+                        "scheduling_objective=%r requires "
+                        "enable_cache_aware_scheduling=True; ignoring.",
+                        scheduling_objective,
+                    )
             schedules = await self._schedule_llm_ops(
-                scheduling_method, llm_dispatch_map, radix_tree, query_profile
+                scheduling_method,
+                llm_dispatch_map,
+                radix_tree,
+                query_profile,
+                scheduling_objective,
             )
 
             # Determine dispatch mode
@@ -1155,9 +1177,12 @@ class HeliumProcessor(ResultPuller):
         # Pull outputs
         # output name -> output data
         outputs: dict[str, list[str] | list[list[dict[str, str]]] | None] = {}
+        # output name -> wall-clock finish time (seconds, from time.time())
+        output_finish_times: dict[str, float] = {}
         has_error: bool = False
         for name, output_task in output_tasks.items():
             task_out = await output_task
+            output_finish_times[name] = time.time()
             if task_out is None:
                 outputs[name] = None
                 has_error = True
@@ -1176,6 +1201,7 @@ class HeliumProcessor(ResultPuller):
             else None
         )
         processor_output = ProcessorOutput(outputs, errors)
+        processor_output.output_finish_times = output_finish_times
 
         return processor_output
 
@@ -1808,6 +1834,7 @@ class HeliumProcessor(ResultPuller):
         dispatch_map: dict[Worker, list[LLMWorkerInput]],
         radix_tree: TemplatedRadixTree | None,
         query_profile: HeliumQueryProfile | None,
+        scheduling_objective: Literal["throughput", "min_jct"] = "throughput",
     ) -> dict[Worker, Iterable[list[str]]]:
         schedules: dict[Worker, Iterable[list[str]]]
         profiling_range = f"llm_schedule:{self.name}"
@@ -1837,6 +1864,7 @@ class HeliumProcessor(ResultPuller):
                         input_slice_map,
                         profiling_info_map,
                         self._llm_worker_info,
+                        objective=scheduling_objective,
                     )
                     schedules = {
                         self._llm_workers[worker_name]: schedule

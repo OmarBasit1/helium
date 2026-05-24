@@ -16,6 +16,13 @@ VLLM_CACHE_CAPACITY: dict[str, dict[str, int]] = {
         "Qwen/Qwen3-8B": 191568,
         "Qwen/Qwen3-14B": 92000,
     },
+    # A40 has 48GB VRAM; values mirrored from RTX 6000 Ada (same capacity) pending profiling
+    "NVIDIA A40": {
+        "meta-llama/Meta-Llama-3-8B-Instruct": 208128,
+        "meta-llama/Llama-3.1-8B-Instruct": 207536,
+        "Qwen/Qwen3-8B": 191568,
+        "Qwen/Qwen3-14B": 92000,
+    },
 }
 LLM_CONTEXT_LENGTH: dict[str, int] = {
     "meta-llama/Meta-Llama-3-8B-Instruct": 8192,

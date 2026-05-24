@@ -818,6 +818,22 @@ class HeliumTradingProgram(TradingProgram, HeliumProgram):
             self.OutputBuilder().update(zip(indices, outputs)).build()
         )
 
+        # Record per-request end-to-end latencies from Helium's server-side
+        # per-output finish times. Helium packs all N stocks into one
+        # HeliumRequest, so every stock's request finishes when the final
+        # output op resolves — replicate the same latency once per stock so
+        # the average is comparable with non-batched systems.
+        output_latencies_by_graph = response.system_profile.get("output_latencies")
+        if output_latencies_by_graph:
+            latency: float | None = None
+            for graph_latencies in output_latencies_by_graph.values():
+                if "investment_recommendation" in graph_latencies:
+                    latency = graph_latencies["investment_recommendation"]
+                    break
+            if latency is not None:
+                for _ in indices:
+                    self.record_request_latency(latency)
+
         return investment_recommendations, response.system_profile
 
     async def _precompute(

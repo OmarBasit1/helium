@@ -4,7 +4,7 @@ import os
 import time
 from collections.abc import Callable, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from multiprocessing.synchronize import Event
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, NoReturn, TypedDict
@@ -124,6 +124,7 @@ class RunnerConfig:
         enable_runtime_adjustment: bool,
         enable_query_profiling: bool,
         helium_prebuilt_file: str | Path | None,
+        scheduling_objective: str = "throughput",
     ) -> str:
         llm_server_config = self.llm_server_config
         config_list = []
@@ -144,6 +145,8 @@ class RunnerConfig:
             config_list.append("QP")
         if helium_prebuilt_file is not None:
             config_list.append("PB")
+        if scheduling_objective == "min_jct":
+            config_list.append("MJCT")
         if self.num_gpu_blocks_override is not None:
             config_list.append(f"{self.num_gpu_blocks_override}blk")
         config = "+".join(config_list)
@@ -173,6 +176,13 @@ class BenchmarkResult:
     """List of elapsed times (per key) for each trial."""
     system_profiles: list[HeliumSystemProfile]
     """List of system profiles (per key) for each trial."""
+    request_latencies: list[list[float]] = field(default_factory=list)
+    """Per-trial list of per-request end-to-end latencies (seconds).
+
+    Each inner list contains one latency per served request in that trial,
+    measured from request submission to completion (including queue/wait
+    time of every agent LLM call in the request).
+    """
 
     @property
     def total_elapsed_times(self) -> list[dict[str, float]]:
@@ -210,6 +220,7 @@ class BenchmarkResult:
         # Average elapsed times
         if elapsed_time:
             elapsed_time_df = pd.DataFrame()
+            per_trial_request_latencies: list[float | None] = []
             for i, trial_results in enumerate(self.total_elapsed_times):
                 new_df = self._get_elapsed_time_df(
                     self.model,
@@ -224,6 +235,27 @@ class BenchmarkResult:
                 elapsed_time_df = pd.concat(
                     [elapsed_time_df, new_df], ignore_index=True
                 )
+                # Per-trial mean of per-request end-to-end latencies, recorded
+                # by each bench program at its per-request entry point. This
+                # is the real per-request signal (submit-to-finish wall time,
+                # including agent-call queue/wait time) and is valid for all
+                # systems, unlike `job_completion_time` which sums overlapping
+                # outer/inner timer buckets for the whole batch.
+                trial_latencies = (
+                    self.request_latencies[i]
+                    if i < len(self.request_latencies)
+                    else []
+                )
+                if trial_latencies:
+                    per_trial_request_latencies.append(
+                        sum(trial_latencies) / len(trial_latencies)
+                    )
+                else:
+                    per_trial_request_latencies.append(None)
+            elapsed_time_df["avg_job_completion_time"] = elapsed_time_df[
+                "job_completion_time"
+            ].mean()
+            elapsed_time_df["avg_request_latency"] = per_trial_request_latencies
             results_df_dict["elapsed_time"] = elapsed_time_df
 
         # System profiling results
@@ -290,6 +322,7 @@ class BenchmarkResult:
         results_dict: dict[str, list[float]] = {
             k: [v] for k, v in total_elapsed_times.items()
         }
+        results_dict["job_completion_time"] = [sum(total_elapsed_times.values())]
         return pd.DataFrame(indices | results_dict)
 
     def _get_llm_benchmark_df(
@@ -561,6 +594,7 @@ class BenchmarkRunner:
         enable_runtime_adjustment: bool,
         enable_query_profiling: bool,
         helium_prebuilt_file: str | Path | None,
+        scheduling_objective: str = "throughput",
     ):
         if not self._in_task_context:
             raise ValueError("set_workload() must be called within task_context().")
@@ -572,6 +606,7 @@ class BenchmarkRunner:
             enable_runtime_adjustment,
             enable_query_profiling,
             helium_prebuilt_file,
+            scheduling_objective,
         )
         bench_name = f"{system} {model} {workload}-{input_size}" + (
             f" ({config_str})" if len(config_str) > 0 else ""
@@ -627,6 +662,7 @@ class BenchmarkRunner:
 
         elapsed_times: list[dict[str, list[float]]] = []
         system_profiles: list[HeliumSystemProfile] = []
+        request_latencies: list[list[float]] = []
         for args, kwargs in tqdm.tqdm(
             zip(args_list, kwargs_list),
             total=num_trials,
@@ -639,6 +675,7 @@ class BenchmarkRunner:
             elapsed_time = bench.get_elapsed_times()
             elapsed_times.append(elapsed_time)
             system_profiles.append(bench.get_and_reset_system_profile())
+            request_latencies.append(bench.get_request_latencies())
             await self.clean_up_run()
         result = BenchmarkResult(
             info.model,
@@ -649,6 +686,7 @@ class BenchmarkRunner:
             run_name,
             elapsed_times,
             system_profiles,
+            request_latencies,
         )
         self._bench_results[run_name] = result
         return result

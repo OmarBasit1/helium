@@ -13,6 +13,10 @@ class HeliumSystemProfile(TypedDict, total=False):
     task_profile: dict[str, Any]
     range_profile: dict[str, Any]
     request_profile: dict[str, Any]
+    output_latencies: dict[str, dict[str, float]]
+    """Per-output end-to-end latency (seconds) keyed by graph name then
+    output name. Measured from server request-received time to the moment
+    each output op finishes producing its data."""
 
 
 class HeliumQueryProfile(BaseModel):
@@ -51,6 +55,12 @@ class HeliumRequestConfig(BaseModel):
     """Whether to enable cache-aware scheduling"""
     enable_runtime_adjustment: bool = True
     """Whether to enable runtime adjustment for CAS"""
+    scheduling_objective: Literal["throughput", "min_jct"] = "throughput"
+    """Objective used by cache-aware scheduling. 'throughput' = original CAS sort
+    keys (maximize cache reuse / GPU saturation); 'min_jct' = minimize average
+    per-job completion time by ordering radix subtrees by estimated remaining
+    work, discounted by shared-prefix cache hits. Only consulted when
+    enable_cache_aware_scheduling is True."""
     precompute_mode: Literal["none", "only", "both"] = "none"
     """Whether to only precompute the KV cache without executing the graph"""
     system_profiling_config: SystemProfilingConfig | None = None

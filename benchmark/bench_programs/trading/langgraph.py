@@ -1,3 +1,4 @@
+import asyncio
 from typing import Annotated, Any, Literal, TypedDict, TypeVar
 
 from bench_programs.trading.base import OutputType, TradingInput, TradingProgram
@@ -124,11 +125,15 @@ class LangGraphTradingProgram(TradingProgram):
         self.start_timer("generate")
         outputs: list[dict[str, Any]]
         if SCHEDULING_METHOD == "random":
-            outputs = await workflow.abatch(inputs)  # type: ignore[arg-type]
+            # Use gather-of-ainvoke instead of abatch so each workflow
+            # invocation can be timed individually for avg_request_latency.
+            outputs = await asyncio.gather(
+                *(self.timed_request(workflow.ainvoke(inp)) for inp in inputs)  # type: ignore[arg-type]
+            )
         else:
             outputs = []
             for inp in inputs:
-                out = await workflow.ainvoke(inp)  # type: ignore[arg-type]
+                out = await self.timed_request(workflow.ainvoke(inp))  # type: ignore[arg-type]
                 outputs.append(out)
         self.stop_timer()
 

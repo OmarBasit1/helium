@@ -27,7 +27,9 @@ class AutoGenTradingProgram(TradingProgram):
         self.start_timer("generate")
         tasks = []
         for original_idx, data in zip(indices, trading_input.iter_data()):
-            task = self._run_single_stock(trading_input, data, llm_config, original_idx)
+            task = self.timed_request(
+                self._run_single_stock(trading_input, data, llm_config, original_idx)
+            )
             tasks.append(task)
         outputs = await asyncio.gather(*tasks)
         self.stop_timer()

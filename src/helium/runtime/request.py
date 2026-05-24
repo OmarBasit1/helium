@@ -21,6 +21,7 @@ class RequestInfo:
 
     enable_cache_aware_scheduling: bool
     enable_runtime_adjustment: bool
+    scheduling_objective: Literal["throughput", "min_jct"]
     precompute_mode: Literal["none", "only", "both"]
     precompute_cacheable_inputs: bool
 

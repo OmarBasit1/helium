@@ -21,6 +21,7 @@ class BenchmarkConfig:
         enable_runtime_adjustment: bool,
         enable_query_profiling: bool,
         helium_prebuilt_file: str | Path | None,
+        scheduling_objective: Literal["throughput", "min_jct"] = "throughput",
     ):
         self.system = system
         """Name of the system to benchmark, e.g., "autogen" or "helium"."""
@@ -36,6 +37,9 @@ class BenchmarkConfig:
         """Whether to enable runtime adjustment for CAS"""
         self.enable_query_profiling = enable_query_profiling
         """Whether to enable query profiling for the benchmark."""
+        self.scheduling_objective = scheduling_objective
+        """CAS objective: 'throughput' (original) or 'min_jct' (SJF over radix
+        subtrees, cache-aware tiebreaker). Ablation knob."""
 
         self.validate()
 
@@ -161,5 +165,6 @@ class BenchmarkTask(ABC):
             self.config.enable_runtime_adjustment,
             self.config.enable_query_profiling,
             self.config.helium_prebuilt_file,
+            self.config.scheduling_objective,
         )
         return self.runner

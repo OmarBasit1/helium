@@ -201,6 +201,10 @@ class HeliumServer:
         )
         self.logger.info("Processing request %s.", request.request_id)
 
+        # Wall-clock when the server began handling this request. Used to
+        # compute per-output end-to-end latencies surfaced in system_profile.
+        request_received_time = time.time()
+
         do_system_profiling = request_info.system_profiling_config is not None
         if do_system_profiling:
             # Start request profiling
@@ -337,6 +341,17 @@ class HeliumServer:
 
         # 8. Remap output
         scheduler_output.outputs = self.optimizer.remap_output(outputs, optimizer_info)
+
+        # Per-output end-to-end latencies (seconds), relative to when the
+        # server received this request. Surfaced via system_profile so the
+        # benchmark layer can report avg_request_latency for Helium.
+        output_latencies = {
+            op_name: finish_time - request_received_time
+            for op_name, finish_time in scheduler_output.output_finish_times.items()
+        }
+        system_profile["output_latencies"] = self.optimizer.remap_output(
+            output_latencies, optimizer_info
+        )
 
         if do_system_profiling:
             # Stop request profiling
@@ -496,6 +511,7 @@ class HeliumServer:
             query_graphs=query_graphs,
             enable_cache_aware_scheduling=config.enable_cache_aware_scheduling,
             enable_runtime_adjustment=config.enable_runtime_adjustment,
+            scheduling_objective=config.scheduling_objective,
             precompute_mode=config.precompute_mode,
             precompute_cacheable_inputs=precompute_cacheable_inputs,
             query_profiling_config=config.query_profiling_config,

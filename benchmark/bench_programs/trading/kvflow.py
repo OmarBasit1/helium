@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from typing import Annotated, Any, TypeVar
@@ -178,7 +179,11 @@ class KVFlowTradingProgram(TradingProgram):
         await start_benchmark()
 
         self.start_timer("generate")
-        outputs: list[dict[str, Any]] = await workflow.abatch(inputs)  # type: ignore[arg-type]
+        # gather-of-ainvoke so each per-input workflow can be timed for
+        # avg_request_latency.
+        outputs: list[dict[str, Any]] = await asyncio.gather(
+            *(self.timed_request(workflow.ainvoke(inp)) for inp in inputs)  # type: ignore[arg-type]
+        )
         self.stop_timer()
 
         system_profile = await stop_benchmark()
